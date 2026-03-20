@@ -94,21 +94,6 @@ def normalize_video_summary(video: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def normalize_subtitle_items(raw: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
-    items: list[dict[str, Any]] = []
-    for item in raw or []:
-        if not isinstance(item, dict):
-            continue
-        items.append(
-            {
-                "from": float(item.get("from", 0.0) or 0.0),
-                "to": float(item.get("to", 0.0) or 0.0),
-                "content": item.get("content", ""),
-            }
-        )
-    return items
-
-
 def normalize_comment(item: dict[str, Any]) -> dict[str, Any]:
     member = item.get("member", {}) if isinstance(item.get("member"), dict) else {}
     content = item.get("content", {}) if isinstance(item.get("content"), dict) else {}
@@ -272,16 +257,17 @@ def normalize_video_command_payload(
     subtitle_text: str = "",
     subtitle_items: list[dict[str, Any]] | None = None,
     subtitle_format: str = "timeline",
+    subtitle_formatted_text: str = "",
     ai_summary: str = "",
     comments: list[dict[str, Any]] | None = None,
     related: list[dict[str, Any]] | None = None,
     warnings: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
-    subtitle_payload = {
-        "available": bool(subtitle_text or subtitle_items),
+    display_text = subtitle_formatted_text if subtitle_formatted_text else subtitle_text
+    subtitle_payload: dict[str, Any] = {
+        "available": bool(display_text or subtitle_items),
         "format": subtitle_format,
-        "text": subtitle_text,
-        "items": normalize_subtitle_items(subtitle_items),
+        "text": display_text,
     }
     return {
         "video": normalize_video_summary(info),

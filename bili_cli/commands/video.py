@@ -98,11 +98,17 @@ def video(
         else:
             warnings.append({"code": "related_unavailable", "message": "获取相关推荐失败"})
 
+    effective_format = subtitle_format if subtitle_timeline else "plain"
+    subtitle_formatted = ""
+    if subtitle_timeline and subtitle_items and effective_format != "plain":
+        subtitle_formatted = client.format_subtitle_timeline(subtitle_items, output_format=effective_format)
+
     structured_payload = payloads.normalize_video_command_payload(
         info,
         subtitle_text=subtitle_text,
         subtitle_items=subtitle_items,
-        subtitle_format=subtitle_format if subtitle_timeline else "plain",
+        subtitle_format=effective_format,
+        subtitle_formatted_text=subtitle_formatted,
         ai_summary=ai_summary,
         comments=comments_items,
         related=related_items,
