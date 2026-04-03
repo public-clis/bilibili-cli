@@ -138,7 +138,7 @@ def _validate_credential(cred: Credential, require_write: bool = False) -> bool 
         try:
             await user.get_self_info(cred)
             return True
-        except NetworkException:
+        except (NetworkException, TimeoutError, ConnectionError, OSError):
             return None
         except Exception:
             return False
