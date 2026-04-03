@@ -194,7 +194,7 @@ async def get_video_subtitle(
     # Download subtitle JSON
     try:
         timeout = aiohttp.ClientTimeout(total=10)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
             async with session.get(subtitle_url) as resp:
                 resp.raise_for_status()
                 subtitle_data = await resp.json(content_type=None)
@@ -374,7 +374,7 @@ async def _get_video_comments_direct(
         headers["Cookie"] = "; ".join(cookies)
 
     timeout = aiohttp.ClientTimeout(total=30)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
+    async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
         async with session.get(api_url, params=params, headers=headers) as resp:
             resp.raise_for_status()
             payload = await resp.json()
@@ -668,7 +668,7 @@ async def download_audio(audio_url: str, output_path: str) -> int:
 
     for attempt in range(max_retries):
         try:
-            async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
                 async with session.get(audio_url, headers=_DOWNLOAD_HEADERS) as resp:
                     if resp.status == 200:
                         os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
