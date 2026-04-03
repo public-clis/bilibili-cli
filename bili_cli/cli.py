@@ -28,12 +28,41 @@ def _format_count(n: int) -> str:
     return common.format_count(n)
 
 
+def _configure_proxy():
+    """Detect proxy from environment and apply to bilibili-api-python.
+
+    bilibili-api-python's AioHTTPClient passes proxy="" by default, which
+    overrides aiohttp's trust_env and bypasses system proxy settings.
+    We work around this by explicitly setting the proxy on request_settings.
+    """
+    import logging
+    import os
+
+    proxy = (
+        os.environ.get("https_proxy")
+        or os.environ.get("HTTPS_PROXY")
+        or os.environ.get("http_proxy")
+        or os.environ.get("HTTP_PROXY")
+        or os.environ.get("ALL_PROXY")
+        or os.environ.get("all_proxy")
+    )
+    if not proxy:
+        return
+
+    from bilibili_api.utils.network import request_settings
+
+    if not request_settings.get_proxy():
+        request_settings.set_proxy(proxy)
+        logging.getLogger(__name__).debug("Auto-detected proxy: %s", proxy)
+
+
 @click.group()
 @click.version_option(version=__version__, prog_name="bili")
 @click.option("-v", "--verbose", is_flag=True, help="Enable debug logging.")
 def cli(verbose: bool):
     """bili — Bilibili CLI tool 📺"""
     common.setup_logging(verbose)
+    _configure_proxy()
 
 
 # Register commands.

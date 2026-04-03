@@ -138,7 +138,7 @@ def _validate_credential(cred: Credential, require_write: bool = False) -> bool 
         try:
             await user.get_self_info(cred)
             return True
-        except NetworkException:
+        except (NetworkException, TimeoutError, ConnectionError, OSError):
             return None
         except Exception:
             return False
@@ -172,13 +172,9 @@ def _load_saved_credential() -> Credential | None:
         return None
 
 
-def _extract_browser_credential() -> Credential | None:
-    """Extract Bilibili cookies from local browsers using browser-cookie3.
+SUPPORTED_BROWSERS = ("chrome", "chromium", "firefox", "edge", "brave")
 
-    Runs extraction in a subprocess with timeout to avoid hanging
-    when the browser is running (Chrome DB lock issue).
-    """
-    extract_script = '''
+_BROWSER_PROBE_SCRIPT = '''
 import json, sys
 try:
     import browser_cookie3 as bc3
@@ -188,27 +184,36 @@ except ImportError:
 
 browsers = [
     ("Chrome", bc3.chrome),
+    ("Chromium", bc3.chromium),
     ("Firefox", bc3.firefox),
     ("Edge", bc3.edge),
     ("Brave", bc3.brave),
 ]
 
+results = []
 for name, loader in browsers:
     try:
         cj = loader(domain_name=".bilibili.com")
         cookies = {c.name: c.value for c in cj if "bilibili.com" in (c.domain or "")}
         if "SESSDATA" in cookies:
-            print(json.dumps({"browser": name, "cookies": cookies}))
-            sys.exit(0)
-    except Exception:
-        pass
+            results.append({"browser": name, "status": "found", "cookies": cookies})
+        else:
+            results.append({"browser": name, "status": "no_cookie"})
+    except Exception as e:
+        results.append({"browser": name, "status": "error", "message": str(e)})
 
-print(json.dumps({"error": "no_cookies"}))
+print(json.dumps({"results": results}))
 '''
 
+
+def _run_browser_probe() -> list[dict] | None:
+    """Run the browser cookie extraction subprocess and return per-browser results.
+
+    Returns None if browser-cookie3 is not installed or the subprocess fails.
+    """
     try:
         result = subprocess.run(
-            [sys.executable, "-c", extract_script],
+            [sys.executable, "-c", _BROWSER_PROBE_SCRIPT],
             capture_output=True,
             text=True,
             timeout=15,
@@ -228,27 +233,9 @@ print(json.dumps({"error": "no_cookies"}))
         if "error" in data:
             if data["error"] == "not_installed":
                 logger.debug("browser-cookie3 not installed, skipping")
-            else:
-                logger.debug("No valid Bilibili cookies found in any browser")
             return None
 
-        cookies = data["cookies"]
-        browser_name = data["browser"]
-        if not REQUIRED_COOKIES.issubset(cookies):
-            logger.debug("Browser cookies missing required keys: %s", REQUIRED_COOKIES)
-            return None
-        logger.info(
-            "Found valid cookies in %s (%d cookies)", browser_name, len(cookies)
-        )
-
-        return Credential(
-            sessdata=cookies.get("SESSDATA", ""),
-            bili_jct=cookies.get("bili_jct", ""),
-            ac_time_value=cookies.get("ac_time_value", ""),
-            buvid3=cookies.get("buvid3", ""),
-            buvid4=cookies.get("buvid4", ""),
-            dedeuserid=cookies.get("DedeUserID", ""),
-        )
+        return data.get("results", [])
 
     except subprocess.TimeoutExpired:
         logger.warning(
@@ -259,6 +246,106 @@ print(json.dumps({"error": "no_cookies"}))
     except (json.JSONDecodeError, KeyError) as e:
         logger.warning("Cookie extraction parse error: %s", e)
         return None
+
+
+def _credential_from_cookies(cookies: dict[str, str]) -> Credential | None:
+    """Build a Credential from a cookie dict, returning None if SESSDATA is missing."""
+    if not REQUIRED_COOKIES.issubset(cookies):
+        return None
+    return Credential(
+        sessdata=cookies.get("SESSDATA", ""),
+        bili_jct=cookies.get("bili_jct", ""),
+        ac_time_value=cookies.get("ac_time_value", ""),
+        buvid3=cookies.get("buvid3", ""),
+        buvid4=cookies.get("buvid4", ""),
+        dedeuserid=cookies.get("DedeUserID", ""),
+    )
+
+
+def _extract_browser_credential() -> Credential | None:
+    """Extract Bilibili cookies from local browsers (first match wins).
+
+    Used internally by get_credential(); for user-facing login with feedback,
+    use probe_browser_cookies() instead.
+    """
+    results = _run_browser_probe()
+    if results is None:
+        return None
+
+    for entry in results:
+        if entry.get("status") == "found":
+            cred = _credential_from_cookies(entry["cookies"])
+            if cred:
+                logger.info("Found valid cookies in %s", entry["browser"])
+                return cred
+
+    logger.debug("No valid Bilibili cookies found in any browser")
+    return None
+
+
+def probe_browser_cookies(
+    browser_name: str | None = None,
+) -> tuple[Credential | None, list[dict[str, str]]]:
+    """Try browsers and return (credential, attempt_details).
+
+    Each entry in attempt_details is {"browser": ..., "status": ...}
+    where status is one of: "found", "no_cookie", "error".
+
+    Args:
+        browser_name: If set, only return the result for this browser.
+    """
+    results = _run_browser_probe()
+
+    if results is None:
+        browsers = [browser_name] if browser_name else list(SUPPORTED_BROWSERS)
+        return None, [{"browser": b, "status": "probe_failed"} for b in browsers]
+
+    if browser_name:
+        results = [r for r in results if r["browser"].lower() == browser_name.lower()]
+
+    credential = None
+    attempts: list[dict[str, str]] = []
+    for entry in results:
+        status = entry.get("status", "error")
+        attempt: dict[str, str] = {"browser": entry["browser"], "status": status}
+        if status == "error":
+            attempt["message"] = entry.get("message", "")
+        attempts.append(attempt)
+
+        if status == "found" and credential is None:
+            credential = _credential_from_cookies(entry.get("cookies", {}))
+
+    return credential, attempts
+
+
+def load_credential_from_cookie_file(path: str | Path) -> Credential:
+    """Load credential from a user-supplied cookie JSON file.
+
+    Accepts both uppercase cookie names (SESSDATA, DedeUserID) and
+    lowercase field names (sessdata, dedeuserid).
+    Raises FileNotFoundError or ValueError on failure.
+    """
+    file_path = Path(path)
+    if not file_path.exists():
+        raise FileNotFoundError(f"Cookie 文件不存在: {path}")
+
+    try:
+        data = json.loads(file_path.read_text())
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Cookie 文件 JSON 格式错误: {e}") from e
+
+    sessdata = data.get("SESSDATA", "") or data.get("sessdata", "")
+    if not sessdata:
+        raise ValueError("Cookie 文件缺少必填字段: SESSDATA")
+
+    return Credential(
+        sessdata=sessdata,
+        bili_jct=data.get("bili_jct", ""),
+        ac_time_value=data.get("ac_time_value", ""),
+        buvid3=data.get("buvid3", ""),
+        buvid4=data.get("buvid4", ""),
+        dedeuserid=data.get("DedeUserID", "") or data.get("dedeuserid", ""),
+    )
 
 
 def save_credential(credential: Credential):

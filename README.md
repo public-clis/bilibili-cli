@@ -26,7 +26,7 @@ A CLI for Bilibili — browse videos, users, favorites from the terminal 📺
 - 📰 **Feed** — dynamic timeline from your follows
 - 📂 **Favorites** — browse favorite folders, watch-later, and watch history
 - 👍 **Interactions** — like, coin, triple (一键三连)
-- 🔐 **Smart auth** — auto-extracts cookies from Chrome/Firefox, or QR code login
+- 🔐 **Smart auth** — auto-extracts cookies from Chrome/Chromium/Firefox/Edge/Brave, cookie file import for non-standard browsers, or QR code login
 - 📊 **Structured output** — major query commands support `--yaml` and `--json`
 - 🤖 **Agent-friendly defaults** — non-TTY stdout defaults to YAML; override with `OUTPUT=yaml|json|rich|auto`
 - 📦 **Stable envelope** — see [SCHEMA.md](./SCHEMA.md) for `ok/schema_version/data/error`
@@ -85,7 +85,9 @@ uv sync --extra dev --reinstall
 # Login & account
 bili status                    # Check login status
 bili status --yaml             # Structured auth status
-bili login                     # QR code login
+bili login                     # Try all browsers, then QR code login
+bili login --browser chromium  # Try only Chromium
+bili login --cookie-file cookies.json  # Import cookies from a JSON file
 bili whoami                    # Detailed profile (level, coins, followers)
 bili whoami --yaml             # Structured profile
 
@@ -144,12 +146,17 @@ bili coin BV1ABcsztEcY --yaml           # Structured write result
 
 ## Authentication
 
-bilibili-cli uses a 3-tier authentication strategy:
+`bili login` uses a 3-step strategy — tries each in order and stops on first success:
 
-1. **Saved credential** — loads from `~/.bilibili-cli/credential.json`
-2. **Browser cookies** — auto-extracts from Chrome, Firefox, Edge, or Brave
-3. **QR code login** — `bili login` displays a QR code in the terminal
+1. **Browser cookies** — auto-extracts from Chrome, Chromium, Firefox, Edge, and Brave (shows per-browser results in terminal)
+2. **QR code login** — if no browser cookies found, displays a QR code for Bilibili App scan
 
+You can also target a specific browser or load cookies from a file:
+
+- `bili login --browser chromium` — only try Chromium (skip others and QR)
+- `bili login --cookie-file cookies.json` — import cookies from a JSON file (for non-standard browsers)
+
+Saved credentials are stored at `~/.bilibili-cli/credential.json` and reused automatically.
 Credentials are validated on use for authenticated commands. Expired cookies are automatically cleared, while transient network validation failures keep local credentials for best-effort fallback.
 `bili status` exits with code `0` only when authenticated; otherwise it exits with `1`.
 
@@ -223,7 +230,7 @@ Once added, AI agents that support the `.agents/skills/` convention will automat
 
 ## Troubleshooting
 
-- `需要登录` / `not_authenticated` — Run `bili login` to scan QR code, or ensure you're logged in to bilibili.com in Chrome/Firefox/Edge/Brave.
+- `需要登录` / `not_authenticated` — Run `bili login` (auto-tries browsers then QR), or use `bili login --browser <name>` / `bili login --cookie-file <path>` for non-standard setups.
 - `HTTP 412` / `RateLimitError` — Bilibili anti-scraping triggered. Wait a moment and retry, or reduce `--max`.
 - `无法提取 BV 号` / `InvalidBvidError` — Check the BV ID or URL format. Must be `BV` followed by 10 alphanumeric characters.
 - `NetworkError` — Check your network connection. If behind a proxy, ensure it supports the target domain.
@@ -250,7 +257,7 @@ Structured error codes: `not_authenticated`, `permission_denied`, `invalid_input
 - 📰 **动态** — 关注的人的动态时间线
 - 📂 **收藏** — 收藏夹浏览、稍后再看、观看历史
 - 👍 **互动** — 点赞、投币、一键三连
-- 🔐 **智能认证** — 自动提取浏览器 Cookie，或扫码登录
+- 🔐 **智能认证** — 自动提取浏览器 Cookie（Chrome/Chromium/Firefox/Edge/Brave），支持 cookie 文件导入，或扫码登录
 - 📊 **结构化输出** — 主要查询命令支持 `--yaml` 和 `--json`
 - 🤖 **更适合 Agent** — stdout 不是 TTY 时默认输出 YAML，也可以用 `OUTPUT=yaml|json|rich|auto` 覆盖
 - 🧱 **规范化 payload** — 结构化输出在命令层做了收口，不再直接暴露原始上游 SDK 返回
@@ -308,7 +315,9 @@ uv sync --extra dev --reinstall
 # 登录与账号
 bili status                    # 检查登录状态
 bili status --yaml             # 结构化认证状态
-bili login                     # 扫码登录
+bili login                     # 依次尝试浏览器，失败后扫码登录
+bili login --browser chromium  # 仅从 Chromium 提取 cookie
+bili login --cookie-file cookies.json  # 从 JSON 文件导入 cookie
 bili whoami                    # 查看个人信息（等级、硬币、粉丝数）
 bili whoami --yaml             # 结构化个人信息
 
@@ -366,12 +375,17 @@ bili coin BV1ABcsztEcY --yaml           # 结构化写操作结果
 
 ## 认证策略
 
-bilibili-cli 采用三级认证策略：
+`bili login` 按顺序尝试以下策略，成功即停止：
 
-1. **已保存凭证** — 从 `~/.bilibili-cli/credential.json` 加载
-2. **浏览器 Cookie** — 自动从 Chrome、Firefox、Edge、Brave 提取
-3. **扫码登录** — `bili login` 在终端显示二维码
+1. **浏览器 Cookie** — 依次尝试 Chrome、Chromium、Firefox、Edge、Brave，并在终端逐个显示结果
+2. **扫码登录** — 所有浏览器均未找到有效 Cookie 时，在终端显示二维码
 
+也可以指定浏览器或从文件导入 Cookie：
+
+- `bili login --browser chromium` — 仅尝试 Chromium（跳过其他浏览器和扫码）
+- `bili login --cookie-file cookies.json` — 从 JSON 文件导入 Cookie（适用于非常规浏览器）
+
+凭证保存在 `~/.bilibili-cli/credential.json`，后续命令自动复用。
 需要认证的命令会自动校验凭证。过期 Cookie 会自动清除；如果只是临时网络异常，不会误清本地凭证（会以 best-effort 继续尝试）。
 
 大部分命令无需登录。字幕、收藏夹、动态和互动操作需要登录。写操作（like/coin/triple/unfollow/dynamic-post/dynamic-delete）需要可写凭证（包含 `bili_jct`）。
@@ -444,7 +458,7 @@ git clone git@github.com:jackwener/bilibili-cli.git .agents/skills/bilibili-cli
 
 ## 常见问题
 
-- `需要登录` — 执行 `bili login` 扫码登录，或确保已在 Chrome/Firefox/Edge/Brave 登录 bilibili.com
+- `需要登录` — 执行 `bili login`（自动尝试浏览器后扫码），或使用 `bili login --browser <浏览器>` / `bili login --cookie-file <路径>` 指定来源
 - `HTTP 412` / `RateLimitError` — B 站反爬触发，稍等后重试，或减小 `--max`
 - `无法提取 BV 号` — 检查 BV 号或 URL 格式，必须是 `BV` + 10 位字母数字
 - `NetworkError` — 检查网络连接
