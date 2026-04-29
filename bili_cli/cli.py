@@ -4,6 +4,7 @@ Usage:
     bili login / logout / status / whoami
     bili video <BV号或URL> [--subtitle] [--ai] [--comments] [--related] [--yaml|--json]
     bili user <UID或用户名>          bili user-videos <UID> [--max N]
+    bili user-dynamics <UID或用户名> [--max N] [--offset N]
     bili search <关键词> [--type user|video] [--yaml|--json]
     bili hot / rank / feed / my-dynamics / following / history / watch-later / favorites
     bili dynamic-post <TEXT> / dynamic-delete <动态ID>
@@ -46,6 +47,7 @@ cli.add_command(video.video)
 
 cli.add_command(user_search.user)
 cli.add_command(user_search.user_videos)
+cli.add_command(user_search.user_dynamics)
 cli.add_command(user_search.search)
 
 cli.add_command(collections.favorites)

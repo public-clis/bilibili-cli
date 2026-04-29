@@ -718,6 +718,57 @@ def test_my_dynamics_forwards_options(runner):
         mock_get.assert_awaited_once_with(uid=946974, offset=99, need_top=True, credential=mock_cred)
 
 
+def test_user_dynamics_success(runner):
+    mock_cred = MagicMock()
+    data = {
+        "cards": [
+            {
+                "desc": {"dynamic_id": 123, "timestamp": 1700000000},
+                "card": json.dumps({"item": {"content": "测试动态内容"}}),
+            }
+        ],
+        "next_offset": 456,
+    }
+    with patch("bili_cli.commands.common.get_credential", return_value=mock_cred), \
+         patch("bili_cli.client.get_user_dynamics", new_callable=AsyncMock, return_value=data):
+        result = runner.invoke(cli, ["user-dynamics", "946974", "--max", "1"])
+        assert result.exit_code == 0
+        assert "123" in result.output
+        assert "测试动态内容" in result.output
+        assert "user-dynamics 946974 --offset 456" in result.output
+
+
+def test_user_dynamics_structured_output(runner):
+    mock_cred = MagicMock()
+    data = {
+        "cards": [
+            {
+                "desc": {"dynamic_id_str": "123", "timestamp": 1700000000},
+                "card": json.dumps({"item": {"content": "测试动态内容"}}),
+            }
+        ],
+        "next_offset": 456,
+    }
+    with patch("bili_cli.commands.common.get_credential", return_value=mock_cred), \
+         patch("bili_cli.client.get_user_dynamics", new_callable=AsyncMock, return_value=data):
+        result = runner.invoke(cli, ["user-dynamics", "946974", "--json"])
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert payload["ok"] is True
+        assert payload["data"]["uid"] == 946974
+        assert payload["data"]["items"][0]["id"] == "123"
+        assert payload["data"]["next_offset"] == 456
+
+
+def test_user_dynamics_forwards_options(runner):
+    mock_cred = MagicMock()
+    with patch("bili_cli.commands.common.get_credential", return_value=mock_cred), \
+         patch("bili_cli.client.get_user_dynamics", new_callable=AsyncMock, return_value={"cards": []}) as mock_get:
+        result = runner.invoke(cli, ["user-dynamics", "946974", "--offset", "99", "--top"])
+        assert result.exit_code == 0
+        mock_get.assert_awaited_once_with(uid=946974, offset=99, need_top=True, credential=mock_cred)
+
+
 def test_dynamic_post_text_success(runner):
     mock_cred = MagicMock()
     with patch("bili_cli.commands.common.get_credential", return_value=mock_cred), \

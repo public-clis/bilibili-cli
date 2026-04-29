@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 
 import click
 from rich.panel import Panel
@@ -143,6 +144,67 @@ def user_videos(uid_or_name: str, count: int, as_json: bool, as_yaml: bool):
         )
 
     common.console.print(table)
+
+
+@click.command(name="user-dynamics")
+@click.argument("uid_or_name")
+@click.option("--offset", default=0, type=click.IntRange(0), help="分页偏移量；默认 0。")
+@click.option("--top/--no-top", "need_top", default=False, help="是否包含置顶动态。")
+@click.option("--max", "-n", "count", default=20, type=click.IntRange(1, 50), help="显示条数 (1-50)。")
+@common.structured_output_options
+def user_dynamics(uid_or_name: str, offset: int, need_top: bool, count: int, as_json: bool, as_yaml: bool):
+    """查看指定 UP 主发布的动态。
+
+    UID_OR_NAME 可以是 UID（纯数字）或用户名（搜索第一个匹配）。
+    """
+    from .. import client
+
+    output_format = common.resolve_output_format(as_json=as_json, as_yaml=as_yaml)
+
+    uid = _resolve_uid(uid_or_name)
+    cred = common.require_login(message="需要登录才能查看 UP 主动态。使用 [bold]bili login[/bold] 登录。")
+    data = common.run_or_exit(
+        client.get_user_dynamics(uid=uid, offset=offset, need_top=need_top, credential=cred),
+        "获取 UP 主动态失败",
+    )
+
+    cards = data.get("cards") or []
+    normalized_items = [payloads.normalize_dynamic_item(card) for card in cards[:count] if isinstance(card, dict)]
+    next_offset = data.get("next_offset") or data.get("offset") or ""
+    if common.emit_structured(
+        {
+            "uid": uid,
+            "offset": offset,
+            "next_offset": next_offset,
+            "items": normalized_items,
+        },
+        output_format,
+    ):
+        return
+
+    if not isinstance(cards, list) or not cards:
+        common.console.print("[yellow]该 UP 主暂无动态[/yellow]")
+        return
+
+    table = Table(title=f"📝 UP 主动态  UID: {uid}  (offset={offset})", border_style="blue")
+    table.add_column("#", style="dim", width=4)
+    table.add_column("动态ID", style="cyan", width=16)
+    table.add_column("发布时间", width=12)
+    table.add_column("内容", max_width=60)
+
+    for idx, item in enumerate(normalized_items, 1):
+        published_at = item.get("published_at", "")
+        try:
+            pub_time = datetime.fromisoformat(published_at).strftime("%m-%d %H:%M") if published_at else "-"
+        except ValueError:
+            pub_time = item.get("published_label", "") or "-"
+        text = item.get("text") or item.get("title") or "-"
+        table.add_row(str(idx), str(item.get("id", "")), pub_time, str(text)[:60])
+
+    common.console.print(table)
+
+    if next_offset not in ("", None, offset):
+        common.console.print(f"\n[dim]下一页：bili user-dynamics {uid} --offset {next_offset}[/dim]")
 
 
 @click.command()
