@@ -10,6 +10,7 @@ import asyncio
 import logging
 import os
 import re
+from pathlib import Path
 from typing import Any
 
 import aiohttp
@@ -568,12 +569,29 @@ async def get_dynamic_feed(
     )
 
 
-async def post_text_dynamic(text: str, credential: Credential) -> dict[str, Any]:
-    """Publish a plain-text dynamic."""
+async def post_text_dynamic(
+    text: str, credential: Credential, images: list[str] | None = None
+) -> dict[str, Any]:
+    """Publish a dynamic (text-only or with images)."""
     content = text.strip()
-    if not content:
-        raise BiliError("发布动态: 文本不能为空")
-    info = dynamic.BuildDynamic.empty().add_text(content)
+    if not content and not images:
+        raise BiliError("发布动态: 文本或图片不能同时为空")
+    info = dynamic.BuildDynamic.empty()
+    if content:
+        info.add_text(content)
+    if images:
+        from bilibili_api.utils.picture import Picture
+
+        pics: list[Picture] = []
+        for path in images:
+            p = Path(path)
+            if not p.exists():
+                raise BiliError(f"发布动态: 图片不存在: {path}")
+            pic = Picture.from_file(str(p))
+            # Upload the image to get a B站 hosted URL
+            pic = await pic.upload(credential)
+            pics.append(pic)
+        info.add_image(pics)
     return await _call_api(
         "发布动态",
         dynamic.send_dynamic(info=info, credential=credential),
