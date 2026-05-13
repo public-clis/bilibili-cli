@@ -481,9 +481,22 @@ def my_dynamics(offset: int, need_top: bool, count: int, as_json: bool, as_yaml:
     default=None,
     help="从文件读取动态文本。",
 )
+@click.option(
+    "--image",
+    "images",
+    type=click.Path(exists=True, dir_okay=False),
+    multiple=True,
+    help="图片路径（可多次指定，最多 9 张）。",
+)
 @common.structured_output_options
-def dynamic_post(text: str | None, from_file: Path | None, as_json: bool, as_yaml: bool):
-    """发布一条纯文本动态。"""
+def dynamic_post(
+    text: str | None,
+    from_file: Path | None,
+    images: tuple[str, ...],
+    as_json: bool,
+    as_yaml: bool,
+):
+    """发布一条动态（支持图文）。"""
     from .. import client
 
     output_format = common.resolve_output_format(as_json=as_json, as_yaml=as_yaml)
@@ -494,11 +507,16 @@ def dynamic_post(text: str | None, from_file: Path | None, as_json: bool, as_yam
         raw_text = from_file.read_text(encoding="utf-8")
 
     content = raw_text.strip()
-    if not content:
-        common.exit_error("请提供动态文本。可用参数：TEXT 或 --from-file FILE")
+    image_list = list(images) if images else None
+
+    if not content and not image_list:
+        common.exit_error("请提供动态文本或图片。可用参数：TEXT 或 --from-file FILE 或 --image PATH")
+
+    if image_list and len(image_list) > 9:
+        common.exit_error(f"图片数量超限: {len(image_list)} 张，最多 9 张")
 
     data = common.run_or_exit(
-        client.post_text_dynamic(content, credential=cred),
+        client.post_text_dynamic(content, credential=cred, images=image_list),
         "发布动态失败",
     )
 
