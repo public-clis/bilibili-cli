@@ -233,7 +233,7 @@ def normalize_dynamic_item(item: dict[str, Any]) -> dict[str, Any]:
     card = _decode_json(item.get("card"))
     desc_info = item.get("desc", {}) if isinstance(item.get("desc"), dict) else {}
     dynamic_id = desc_info.get("dynamic_id_str") or desc_info.get("dynamic_id") or item.get("id_str") or item.get("id") or ""
-    ts = _to_int(desc_info.get("timestamp"), 0)
+    ts = _to_int(desc_info.get("timestamp"), 0) or _to_int(author.get("pub_ts"), 0)
     published_at = datetime.fromtimestamp(ts).isoformat() if ts > 0 else ""
 
     text = desc.get("text", "")
