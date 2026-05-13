@@ -27,3 +27,10 @@ Thumbs.db
 .env.local
 
 # uv
+
+# Audio temp files
+*.wav
+*.m4a
+*.mp3
+bili-audio/
+bilibili-cli/

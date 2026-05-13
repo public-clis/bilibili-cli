@@ -371,38 +371,30 @@ def feed(offset: str, as_json: bool, as_yaml: bool):
 
     common.console.print("[bold]📰 动态时间线[/bold]\n")
 
-    for item in items[:15]:
-        modules = item.get("modules", {})
-        author = modules.get("module_author", {})
-        dyn_main = modules.get("module_dynamic", {})
-        stat = modules.get("module_stat", {})
+    # 复用 normalize_dynamic_item 处理后的数据
+    normalized_items = [payloads.normalize_dynamic_item(item) for item in items if isinstance(item, dict)]
 
+    for norm_item in normalized_items[:10]:
+        author = norm_item.get("author", {})
         name = author.get("name", "")
-        pub_time = author.get("pub_time", "")
-
-        desc = dyn_main.get("desc", {})
-        text = desc.get("text", "") if desc else ""
-
-        major = dyn_main.get("major", {})
-        title = ""
-        if major:
-            archive = major.get("archive", {})
-            if archive:
-                title = archive.get("title", "")
-            article = major.get("article", {})
-            if article:
-                title = article.get("title", "")
-
-        comment_info = stat.get("comment", {})
-        like_info = stat.get("like", {})
-        comment_count = comment_info.get("count", 0) if comment_info else 0
-        like_count = like_info.get("count", 0) if like_info else 0
+        pub_time = norm_item.get("published_label", "")
+        title = norm_item.get("title", "")
+        text = norm_item.get("text", "")
+        dynamic_type = norm_item.get("type", "")
+        url = norm_item.get("url", "")
+        pics = norm_item.get("pics", [])
+        comment_count = norm_item.get("stats", {}).get("comment", 0)
+        like_count = norm_item.get("stats", {}).get("like", 0)
 
         common.console.print(f"  [cyan]{name}[/cyan]  [dim]{pub_time}[/dim]")
         if title:
             common.console.print(f"  📺 {title}")
         if text:
             common.console.print(f"  {text[:100]}")
+        if dynamic_type == "MAJOR_TYPE_ARCHIVE" and url:
+            common.console.print(f"  🔗 {url}")
+        elif dynamic_type == "MAJOR_TYPE_OPUS" and pics:
+            common.console.print(f"  🖼️  {len(pics)} 张图片")
         if comment_count or like_count:
             common.console.print(f"  [dim]👍 {like_count}  💬 {comment_count}[/dim]")
         common.console.print()

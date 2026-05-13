@@ -23,21 +23,21 @@ def _sanitize_filename(title: str) -> str:
 @click.command()
 @click.argument("bv_or_url")
 @click.option("--segment", "-s", default=25, type=click.IntRange(5, 300),
-              help="每段时长（秒），默认 25。")
-@click.option("--no-split", is_flag=True, help="不切分，直接保存完整音频文件。")
+              help="切分时每段时长（秒），默认 25。需配合 --split 使用。")
+@click.option("--split", is_flag=True, help="切分为 WAV 片段（用于 ASR）。默认保存完整音频。")
 @click.option("--output", "-o", default=None, type=click.Path(),
               help=f"输出目录（默认 {DEFAULT_TMP_DIR}/{{title}}/）。")
-def audio(bv_or_url: str, segment: int, no_split: bool, output: str | None):
-    """下载视频音频并切分为 ASR-ready WAV 片段。
+def audio(bv_or_url: str, segment: int, split: bool, output: str | None):
+    """下载视频音频。
 
-    默认输出到 /tmp/bilibili-cli/{title}/ 目录，
-    每段 25 秒，16kHz mono PCM WAV 格式，可直接用于语音转文字 API。
+    默认保存完整音频（m4a 格式）。使用 --split 可切分为 ASR-ready WAV 片段
+    （每段 25 秒，16kHz mono PCM WAV，可直接用于语音转文字 API）。
 
     \b
     示例:
-      bili audio BV1ABcsztEcY                  # 下载并切分
-      bili audio BV1ABcsztEcY --segment 60     # 每段 60 秒
-      bili audio BV1ABcsztEcY --no-split       # 保存完整 m4a
+      bili audio BV1ABcsztEcY                  # 下载完整音频（m4a）
+      bili audio BV1ABcsztEcY --split          # 切分为 WAV 片段
+      bili audio BV1ABcsztEcY --split -s 60   # 切分，每段 60 秒
       bili audio BV1ABcsztEcY -o ~/data/       # 自定义输出目录
     """
     from .. import client
@@ -63,8 +63,9 @@ def audio(bv_or_url: str, segment: int, no_split: bool, output: str | None):
     else:
         out_dir = os.path.join(DEFAULT_TMP_DIR, safe_title)
 
-    if no_split:
-        # Download full audio without splitting
+    if not split:
+        # Download full audio (default behavior)
+        os.makedirs(out_dir, exist_ok=True)
         out_file = os.path.join(out_dir, f"{safe_title}.m4a")
         console.print("[dim]下载音频中...[/dim]")
         nbytes = run_or_exit(client.download_audio(audio_url, out_file), "下载音频")

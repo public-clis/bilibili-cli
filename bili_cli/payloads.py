@@ -233,7 +233,7 @@ def normalize_dynamic_item(item: dict[str, Any]) -> dict[str, Any]:
     card = _decode_json(item.get("card"))
     desc_info = item.get("desc", {}) if isinstance(item.get("desc"), dict) else {}
     dynamic_id = desc_info.get("dynamic_id_str") or desc_info.get("dynamic_id") or item.get("id_str") or item.get("id") or ""
-    ts = _to_int(desc_info.get("timestamp"), 0)
+    ts = _to_int(desc_info.get("timestamp"), 0) or _to_int(author.get("pub_ts"), 0)
     published_at = datetime.fromtimestamp(ts).isoformat() if ts > 0 else ""
 
     text = desc.get("text", "")
@@ -246,7 +246,51 @@ def normalize_dynamic_item(item: dict[str, Any]) -> dict[str, Any]:
         if isinstance(item_info, dict) and not text:
             text = item_info.get("content", "") or item_info.get("description", "") or item_info.get("title", "")
 
-    title = archive.get("title", "") or article.get("title", "")
+    # 获取 opus 类型动态的内容（纯文字/图文）
+    opus = major.get("opus", {}) if isinstance(major.get("opus"), dict) else {}
+    opus_title = opus.get("title", "")
+    opus_url = opus.get("jump_url", "")
+    if opus_url:
+        if opus_url.startswith("//"):
+            opus_url = "https:" + opus_url
+        elif opus_url.startswith("/"):
+            opus_url = "https://www.bilibili.com" + opus_url
+
+    # 从 opus summary 中提取文字内容
+    opus_summary = opus.get("summary", {})
+    if isinstance(opus_summary, dict):
+        rich_text_nodes = opus_summary.get("rich_text_nodes", [])
+        if isinstance(rich_text_nodes, list):
+            opus_text = "".join([node.get("text", "") for node in rich_text_nodes if node.get("text")])
+        else:
+            opus_text = ""
+    else:
+        opus_text = ""
+
+    # 获取图片列表
+    opus_pics = opus.get("pics", [])
+    if isinstance(opus_pics, list):
+        pic_urls = [pic.get("url", "") for pic in opus_pics if pic.get("url")]
+        pic_urls = [("https:" + p if p.startswith("//") else p) for p in pic_urls]
+    else:
+        pic_urls = []
+
+    title = archive.get("title", "") or article.get("title", "") or opus_title
+    bvid = archive.get("bvid", "")
+    video_url = f"https://www.bilibili.com/video/{bvid}" if bvid else opus_url
+
+    # 动态类型
+    if bvid:
+        dynamic_type = "MAJOR_TYPE_ARCHIVE"
+    elif opus.get("opus_id") or opus.get("jump_url"):
+        dynamic_type = "MAJOR_TYPE_OPUS"
+    else:
+        dynamic_type = major.get("type", "") if isinstance(major, dict) else ""
+
+    # 如果 text 为空，尝试使用 opus_text
+    if not text and opus_text:
+        text = opus_text
+
     comment_info = stat.get("comment", {}) if isinstance(stat.get("comment"), dict) else {}
     like_info = stat.get("like", {}) if isinstance(stat.get("like"), dict) else {}
 
@@ -255,10 +299,13 @@ def normalize_dynamic_item(item: dict[str, Any]) -> dict[str, Any]:
         "author": {
             "name": author.get("name", ""),
         },
+        "type": dynamic_type,
         "published_at": published_at,
         "published_label": author.get("pub_time", ""),
         "title": title,
         "text": text,
+        "url": video_url,
+        "pics": pic_urls,
         "stats": {
             "comment": _to_int(comment_info.get("count"), 0),
             "like": _to_int(like_info.get("count"), 0),
