@@ -105,6 +105,7 @@ bili video BV1ABcsztEcY --subtitle-timeline --comments --json  # Extras in one p
 bili user 946974                        # UP profile
 bili user "影视飓风"                     # Search by name
 bili user-videos 946974 --max 20        # Video list
+bili user-dynamics 946974 --max 20      # UP dynamics
 
 # Discovery
 bili hot                                # Trending videos (page 1)
@@ -153,7 +154,7 @@ bilibili-cli uses a 3-tier authentication strategy:
 Credentials are validated on use for authenticated commands. Expired cookies are automatically cleared, while transient network validation failures keep local credentials for best-effort fallback.
 `bili status` exits with code `0` only when authenticated; otherwise it exits with `1`.
 
-Most commands work without login. Subtitles, favorites/following/watch-later/history, feed, my-dynamics, and interactions require authentication. Write actions (like/coin/triple/unfollow/dynamic-post/dynamic-delete) require write-capable credential (`bili_jct`).
+Most commands work without login. Subtitles, favorites/following/watch-later/history, feed, my-dynamics, user-dynamics, and interactions require authentication. Write actions (like/coin/triple/unfollow/dynamic-post/dynamic-delete) require write-capable credential (`bili_jct`).
 
 Audio extraction requires the optional `audio` dependency group (`av`).
 
@@ -190,6 +191,7 @@ bili status --yaml
 bili video BV1ABcsztEcY --yaml
 bili hot --max 5 --yaml
 bili user-videos 946974 --max 3 --yaml
+bili user-dynamics 946974 --max 3 --yaml
 ```
 
 For agent usage, also prefer narrower queries (`--max`, `--page`, `--offset`) to avoid wasting context on oversized payloads.
@@ -328,6 +330,7 @@ bili video BV1ABcsztEcY --subtitle-timeline --comments --json  # 额外内容也
 bili user 946974                        # UP 主资料
 bili user "影视飓风"                     # 按用户名搜索
 bili user-videos 946974 --max 20        # 视频列表
+bili user-dynamics 946974 --max 20      # UP 主动态
 
 # 发现
 bili hot                                # 热门视频（第1页）
@@ -374,7 +377,7 @@ bilibili-cli 采用三级认证策略：
 
 需要认证的命令会自动校验凭证。过期 Cookie 会自动清除；如果只是临时网络异常，不会误清本地凭证（会以 best-effort 继续尝试）。
 
-大部分命令无需登录。字幕、收藏夹、动态和互动操作需要登录。写操作（like/coin/triple/unfollow/dynamic-post/dynamic-delete）需要可写凭证（包含 `bili_jct`）。
+大部分命令无需登录。字幕、收藏夹、动态（`feed` / `my-dynamics` / `user-dynamics`）和互动操作需要登录。写操作（like/coin/triple/unfollow/dynamic-post/dynamic-delete）需要可写凭证（包含 `bili_jct`）。
 
 ## 结构化输出
 
@@ -405,6 +408,7 @@ bili status --yaml
 bili video BV1ABcsztEcY --yaml
 bili hot --max 5 --yaml
 bili user-videos 946974 --max 3 --yaml
+bili user-dynamics 946974 --max 3 --yaml
 ```
 
 另外，agent 应尽量配合 `--max`、`--page`、`--offset` 缩小结果集，避免把不必要的数据带进上下文。

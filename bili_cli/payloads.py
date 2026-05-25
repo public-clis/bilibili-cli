@@ -229,14 +229,16 @@ def normalize_dynamic_item(item: dict[str, Any]) -> dict[str, Any]:
     major = dynamic_mod.get("major", {}) if isinstance(dynamic_mod.get("major"), dict) else {}
     archive = major.get("archive", {}) if isinstance(major.get("archive"), dict) else {}
     article = major.get("article", {}) if isinstance(major.get("article"), dict) else {}
+    opus = major.get("opus", {}) if isinstance(major.get("opus"), dict) else {}
+    opus_summary = opus.get("summary", {}) if isinstance(opus.get("summary"), dict) else {}
 
     card = _decode_json(item.get("card"))
     desc_info = item.get("desc", {}) if isinstance(item.get("desc"), dict) else {}
     dynamic_id = desc_info.get("dynamic_id_str") or desc_info.get("dynamic_id") or item.get("id_str") or item.get("id") or ""
-    ts = _to_int(desc_info.get("timestamp"), 0)
+    ts = _to_int(desc_info.get("timestamp") or author.get("pub_ts"), 0)
     published_at = datetime.fromtimestamp(ts).isoformat() if ts > 0 else ""
 
-    text = desc.get("text", "")
+    text = desc.get("text", "") or opus_summary.get("text", "")
     if not text:
         for key in ("dynamic", "description", "summary", "title"):
             if isinstance(card.get(key), str) and card.get(key):
@@ -246,12 +248,13 @@ def normalize_dynamic_item(item: dict[str, Any]) -> dict[str, Any]:
         if isinstance(item_info, dict) and not text:
             text = item_info.get("content", "") or item_info.get("description", "") or item_info.get("title", "")
 
-    title = archive.get("title", "") or article.get("title", "")
+    title = opus.get("title", "") or archive.get("title", "") or article.get("title", "")
     comment_info = stat.get("comment", {}) if isinstance(stat.get("comment"), dict) else {}
     like_info = stat.get("like", {}) if isinstance(stat.get("like"), dict) else {}
 
     return {
         "id": str(dynamic_id),
+        "type": item.get("type", ""),
         "author": {
             "name": author.get("name", ""),
         },
@@ -259,6 +262,7 @@ def normalize_dynamic_item(item: dict[str, Any]) -> dict[str, Any]:
         "published_label": author.get("pub_time", ""),
         "title": title,
         "text": text,
+        "major_type": major.get("type", ""),
         "stats": {
             "comment": _to_int(comment_info.get("count"), 0),
             "like": _to_int(like_info.get("count"), 0),

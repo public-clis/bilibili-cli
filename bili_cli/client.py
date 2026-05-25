@@ -582,15 +582,16 @@ async def post_text_dynamic(text: str, credential: Credential) -> dict[str, Any]
 
 async def get_user_dynamics(
     uid: int,
-    offset: int = 0,
+    offset: int | str = 0,
     need_top: bool = False,
     credential: Credential | None = None,
 ) -> dict[str, Any]:
     """Fetch a user's own dynamics timeline."""
     u = user.User(uid=uid, credential=credential)
+    parsed_offset = "" if offset in (0, "", None) else str(offset)
     return await _call_api(
         "获取用户动态",
-        u.get_dynamics(offset=offset, need_top=need_top),
+        u.get_dynamics_new(offset=parsed_offset),
     )
 
 
