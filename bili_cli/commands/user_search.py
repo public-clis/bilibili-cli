@@ -148,11 +148,11 @@ def user_videos(uid_or_name: str, count: int, as_json: bool, as_yaml: bool):
 
 @click.command(name="user-dynamics")
 @click.argument("uid_or_name")
-@click.option("--offset", default=0, type=click.IntRange(0), help="分页偏移量；默认 0。")
+@click.option("--offset", default="", help="分页游标；留空为最新。可使用上一页返回的 next_offset/offset。")
 @click.option("--top/--no-top", "need_top", default=False, help="是否包含置顶动态。")
 @click.option("--max", "-n", "count", default=20, type=click.IntRange(1, 50), help="显示条数 (1-50)。")
 @common.structured_output_options
-def user_dynamics(uid_or_name: str, offset: int, need_top: bool, count: int, as_json: bool, as_yaml: bool):
+def user_dynamics(uid_or_name: str, offset: str, need_top: bool, count: int, as_json: bool, as_yaml: bool):
     """查看指定 UP 主发布的动态。
 
     UID_OR_NAME 可以是 UID（纯数字）或用户名（搜索第一个匹配）。
@@ -168,8 +168,8 @@ def user_dynamics(uid_or_name: str, offset: int, need_top: bool, count: int, as_
         "获取 UP 主动态失败",
     )
 
-    cards = data.get("cards") or []
-    normalized_items = [payloads.normalize_dynamic_item(card) for card in cards[:count] if isinstance(card, dict)]
+    raw_items = data.get("items") or data.get("cards") or []
+    normalized_items = [payloads.normalize_dynamic_item(card) for card in raw_items[:count] if isinstance(card, dict)]
     next_offset = data.get("next_offset") or data.get("offset") or ""
     if common.emit_structured(
         {
@@ -182,7 +182,7 @@ def user_dynamics(uid_or_name: str, offset: int, need_top: bool, count: int, as_
     ):
         return
 
-    if not isinstance(cards, list) or not cards:
+    if not isinstance(raw_items, list) or not raw_items:
         common.console.print("[yellow]该 UP 主暂无动态[/yellow]")
         return
 

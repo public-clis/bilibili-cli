@@ -721,13 +721,16 @@ def test_my_dynamics_forwards_options(runner):
 def test_user_dynamics_success(runner):
     mock_cred = MagicMock()
     data = {
-        "cards": [
+        "items": [
             {
-                "desc": {"dynamic_id": 123, "timestamp": 1700000000},
-                "card": json.dumps({"item": {"content": "测试动态内容"}}),
+                "id_str": "123",
+                "modules": {
+                    "module_author": {"pub_ts": 1700000000},
+                    "module_dynamic": {"major": {"opus": {"summary": {"text": "测试动态内容"}}}},
+                },
             }
         ],
-        "next_offset": 456,
+        "offset": "456",
     }
     with patch("bili_cli.commands.common.get_credential", return_value=mock_cred), \
          patch("bili_cli.client.get_user_dynamics", new_callable=AsyncMock, return_value=data):
@@ -741,13 +744,21 @@ def test_user_dynamics_success(runner):
 def test_user_dynamics_structured_output(runner):
     mock_cred = MagicMock()
     data = {
-        "cards": [
+        "items": [
             {
-                "desc": {"dynamic_id_str": "123", "timestamp": 1700000000},
-                "card": json.dumps({"item": {"content": "测试动态内容"}}),
+                "id_str": "123",
+                "modules": {
+                    "module_author": {"pub_ts": 1700000000},
+                    "module_dynamic": {
+                        "major": {
+                            "type": "MAJOR_TYPE_OPUS",
+                            "opus": {"title": "动态标题", "summary": {"text": "测试动态内容"}},
+                        }
+                    },
+                },
             }
         ],
-        "next_offset": 456,
+        "offset": "456",
     }
     with patch("bili_cli.commands.common.get_credential", return_value=mock_cred), \
          patch("bili_cli.client.get_user_dynamics", new_callable=AsyncMock, return_value=data):
@@ -757,16 +768,19 @@ def test_user_dynamics_structured_output(runner):
         assert payload["ok"] is True
         assert payload["data"]["uid"] == 946974
         assert payload["data"]["items"][0]["id"] == "123"
-        assert payload["data"]["next_offset"] == 456
+        assert payload["data"]["items"][0]["title"] == "动态标题"
+        assert payload["data"]["items"][0]["text"] == "测试动态内容"
+        assert payload["data"]["items"][0]["major_type"] == "MAJOR_TYPE_OPUS"
+        assert payload["data"]["next_offset"] == "456"
 
 
 def test_user_dynamics_forwards_options(runner):
     mock_cred = MagicMock()
     with patch("bili_cli.commands.common.get_credential", return_value=mock_cred), \
-         patch("bili_cli.client.get_user_dynamics", new_callable=AsyncMock, return_value={"cards": []}) as mock_get:
+         patch("bili_cli.client.get_user_dynamics", new_callable=AsyncMock, return_value={"items": []}) as mock_get:
         result = runner.invoke(cli, ["user-dynamics", "946974", "--offset", "99", "--top"])
         assert result.exit_code == 0
-        mock_get.assert_awaited_once_with(uid=946974, offset=99, need_top=True, credential=mock_cred)
+        mock_get.assert_awaited_once_with(uid=946974, offset="99", need_top=True, credential=mock_cred)
 
 
 def test_dynamic_post_text_success(runner):

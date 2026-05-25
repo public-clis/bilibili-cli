@@ -346,12 +346,12 @@ async def test_post_text_dynamic_rejects_empty_text(mock_credential):
 
 @pytest.mark.asyncio
 async def test_get_user_dynamics_calls_user_api(mock_credential):
-    mock_data = {"cards": [{"desc": {"dynamic_id": 1}}]}
+    mock_data = {"items": [{"id_str": "1"}]}
     with patch("bili_cli.client.user.User") as MockUser:
-        MockUser.return_value.get_dynamics = AsyncMock(return_value=mock_data)
+        MockUser.return_value.get_dynamics_new = AsyncMock(return_value=mock_data)
         result = await client.get_user_dynamics(uid=123, offset=10, need_top=True, credential=mock_credential)
         assert result == mock_data
-        MockUser.return_value.get_dynamics.assert_awaited_once_with(offset=10, need_top=True)
+        MockUser.return_value.get_dynamics_new.assert_awaited_once_with(offset="10")
 
 
 @pytest.mark.asyncio
