@@ -241,17 +241,21 @@ async def test_get_user_videos_raises_on_first_page_error():
 
 
 @pytest.mark.asyncio
-async def test_get_toview_by_name(mock_credential):
-    data = [
-        {
-            "name": "稍后再看",
-            "mediaListResponse": {"list": [{"bvid": "BV1later"}], "count": 1},
-        }
-    ]
-    with patch("bili_cli.client.homepage.get_favorite_list_and_toview", new_callable=AsyncMock, return_value=data):
+async def test_get_toview_passthrough(mock_credential):
+    mock_data = {"list": [{"aid": 123, "title": "test video"}], "count": 1}
+    with patch("bili_cli.client.user.get_toview_list", new_callable=AsyncMock, return_value=mock_data):
         result = await client.get_toview(mock_credential)
+        assert result == mock_data
         assert result["count"] == 1
-        assert result["list"][0]["bvid"] == "BV1later"
+        assert result["list"][0]["aid"] == 123
+
+
+@pytest.mark.asyncio
+async def test_get_toview_empty_list(mock_credential):
+    mock_data = {"list": [], "count": 0}
+    with patch("bili_cli.client.user.get_toview_list", new_callable=AsyncMock, return_value=mock_data):
+        result = await client.get_toview(mock_credential)
+        assert result == mock_data
 
 
 @pytest.mark.asyncio
@@ -267,34 +271,6 @@ async def test_get_watch_history_calls_user_api(mock_credential):
 async def test_get_watch_history_requires_credential():
     with pytest.raises(AuthenticationError):
         await client.get_watch_history()
-
-
-@pytest.mark.asyncio
-async def test_get_toview_by_id(mock_credential):
-    data = [
-        {
-            "id": 2,
-            "mediaListResponse": {"list": [{"bvid": "BV1id"}], "count": 1},
-        }
-    ]
-    with patch("bili_cli.client.homepage.get_favorite_list_and_toview", new_callable=AsyncMock, return_value=data):
-        result = await client.get_toview(mock_credential)
-        assert result["count"] == 1
-        assert result["list"][0]["bvid"] == "BV1id"
-
-
-@pytest.mark.asyncio
-async def test_get_toview_empty_when_not_found(mock_credential):
-    with patch("bili_cli.client.homepage.get_favorite_list_and_toview", new_callable=AsyncMock, return_value=[]):
-        result = await client.get_toview(mock_credential)
-        assert result == {"list": [], "count": 0}
-
-
-@pytest.mark.asyncio
-async def test_get_toview_unexpected_payload_type_returns_empty(mock_credential):
-    with patch("bili_cli.client.homepage.get_favorite_list_and_toview", new_callable=AsyncMock, return_value={"x": 1}):
-        result = await client.get_toview(mock_credential)
-        assert result == {"list": [], "count": 0}
 
 
 @pytest.mark.asyncio
