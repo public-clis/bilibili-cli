@@ -196,11 +196,23 @@ def normalize_history_item(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _aid_to_bvid(aid: int) -> str:
+    """Convert AV号 to BV号."""
+    try:
+        from bilibili_api.utils.aid_bvid_transformer import aid2bvid
+        return aid2bvid(aid)
+    except ImportError:
+        return ""
+
+
 def normalize_watch_later_item(item: dict[str, Any]) -> dict[str, Any]:
+    aid = _to_int(item.get("aid"), 0)
+    bvid = item.get("bvid", "") or (_aid_to_bvid(aid) if aid else "")
     owner = item.get("owner", {}) if isinstance(item.get("owner"), dict) else {}
     return {
-        "id": str(item.get("bvid", "")),
-        "bvid": item.get("bvid", ""),
+        "id": str(bvid or aid or ""),
+        "bvid": bvid,
+        "aid": aid,
         "title": item.get("title", ""),
         "author": owner.get("name", ""),
         "duration_seconds": _to_int(item.get("duration"), 0),

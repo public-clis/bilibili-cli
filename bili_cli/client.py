@@ -13,7 +13,7 @@ import re
 from typing import Any
 
 import aiohttp
-from bilibili_api import comment, dynamic, favorite_list, homepage, hot, rank, search, user, video
+from bilibili_api import comment, dynamic, favorite_list, hot, rank, search, user, video
 from bilibili_api.exceptions import (
     ApiException,
     CredentialNoBiliJctException,
@@ -520,19 +520,7 @@ async def get_watch_history(
 
 async def get_toview(credential: Credential) -> dict[str, Any]:
     """Fetch watch-later (稍后再看) list."""
-    data = await _call_api("获取稍后再看列表", homepage.get_favorite_list_and_toview(credential))
-    if not isinstance(data, list):
-        logger.warning("Unexpected toview payload type: %s", type(data).__name__)
-        return {"list": [], "count": 0}
-    # data is a list; the item with name="稍后再看" contains toview videos
-    for item in data:
-        if item.get("name") == "稍后再看" or item.get("id") == 2:
-            resp = item.get("mediaListResponse", {})
-            return {
-                "list": resp.get("list", []),
-                "count": resp.get("count", 0),
-            }
-    return {"list": [], "count": 0}
+    return await _call_api("获取稍后再看列表", user.get_toview_list(credential))
 
 
 # ---------------------------------------------------------------------------
