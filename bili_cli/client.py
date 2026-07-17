@@ -624,6 +624,54 @@ async def triple_video(bvid: str, credential: Credential) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Cover image
+# ---------------------------------------------------------------------------
+
+
+async def get_cover_url(bvid: str, credential: Credential | None = None) -> str:
+    """Get the cover image URL for a video."""
+    info = await get_video_info(bvid, credential=credential)
+    pic = info.get("pic", "")
+    if not pic:
+        raise NotFoundError(f"获取封面: {bvid} 无封面图")
+    return pic
+
+
+async def download_image(image_url: str, output_path: str) -> int:
+    """Download an image to a file. Returns bytes written."""
+    timeout = aiohttp.ClientTimeout(total=120)
+    max_retries = 3
+
+    for attempt in range(max_retries):
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(image_url, headers=_DOWNLOAD_HEADERS) as resp:
+                    if resp.status == 200:
+                        os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+                        total_bytes = 0
+                        with open(output_path, "wb") as f:
+                            async for chunk in resp.content.iter_chunked(256 * 1024):
+                                if not chunk:
+                                    continue
+                                f.write(chunk)
+                                total_bytes += len(chunk)
+                        return total_bytes
+                    if attempt < max_retries - 1:
+                        logger.warning("Download HTTP %d, retrying...", resp.status)
+                        await asyncio.sleep(2)
+                    else:
+                        raise NetworkError(f"图片下载失败: HTTP {resp.status}")
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            if attempt < max_retries - 1:
+                logger.warning("Download error: %s, retrying...", e)
+                await asyncio.sleep(2)
+            else:
+                raise NetworkError(f"图片下载失败: {e}") from e
+
+    raise NetworkError("图片下载失败: 重试次数用尽")
+
+
+# ---------------------------------------------------------------------------
 # Audio extraction
 # ---------------------------------------------------------------------------
 
@@ -641,7 +689,7 @@ async def get_audio_url(bvid: str, credential: Credential | None = None) -> str:
     download_data = await _call_api("获取下载地址", v.get_download_url(page_index=0))
     detector = VideoDownloadURLDataDetecter(download_data)
     streams = detector.detect_best_streams(
-        audio_max_quality=AudioQuality._64K,
+        audio_min_quality=AudioQuality._192K,
         no_dolby_audio=True,
         no_hires=True,
     )

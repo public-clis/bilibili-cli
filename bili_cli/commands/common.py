@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import logging
+import os
+import re
 import sys
+import tempfile
 
 import click
 
@@ -26,6 +29,16 @@ from ..formatter import (  # noqa: F401
     structured_output_options,
     success_payload,
 )
+
+
+DEFAULT_TMP_DIR = os.path.join(tempfile.gettempdir(), "bilibili-cli")
+
+
+def sanitize_filename(title: str, fallback: str = "output") -> str:
+    """Remove or replace characters that are unsafe in file paths."""
+    title = re.sub(r'[<>:"/\\|?*]', "_", title)
+    title = title.strip(". ")
+    return title[:120] or fallback
 
 
 def setup_logging(verbose: bool):

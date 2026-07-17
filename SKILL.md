@@ -136,6 +136,16 @@ bili audio BV1ABcsztEcY --no-split      # Full m4a file, no splitting
 bili audio BV1ABcsztEcY -o ~/data/      # Custom output directory
 ```
 
+### Cover Image
+
+```bash
+# Download a video's cover image
+bili cover BV1ABcsztEcY                        # Save to /tmp/bilibili-cli/{title}/cover.jpg
+bili cover BV1ABcsztEcY -o ~/Pictures/         # Save to custom directory
+bili cover BV1ABcsztEcY -o ~/cover.png         # Save with custom filename
+bili cover https://www.bilibili.com/video/BV1xx # Works with full URL
+```
+
 ### Interactions (require login)
 
 ```bash

@@ -3,21 +3,10 @@
 from __future__ import annotations
 
 import os
-import re
-import tempfile
 
 import click
 
-from .common import console, exit_error, extract_bvid_or_exit, get_credential, run_or_exit
-
-DEFAULT_TMP_DIR = os.path.join(tempfile.gettempdir(), "bilibili-cli")
-
-
-def _sanitize_filename(title: str) -> str:
-    """Remove or replace characters that are unsafe in file paths."""
-    title = re.sub(r'[<>:"/\\|?*]', "_", title)
-    title = title.strip(". ")
-    return title[:120] or "audio"
+from .common import DEFAULT_TMP_DIR, console, exit_error, extract_bvid_or_exit, format_duration, get_credential, run_or_exit, sanitize_filename
 
 
 @click.command()
@@ -49,9 +38,9 @@ def audio(bv_or_url: str, segment: int, no_split: bool, output: str | None):
     info = run_or_exit(client.get_video_info(bvid, credential=cred), "获取视频信息")
     title = info.get("title", bvid)
     duration = info.get("duration", 0)
-    safe_title = _sanitize_filename(title)
+    safe_title = sanitize_filename(title, fallback="audio")
 
-    console.print(f"[bold]🎵 {title}[/bold]  ({_format_time(duration)})")
+    console.print(f"[bold]🎵 {title}[/bold]  ({format_duration(duration)})")
 
     # 2. Get audio stream URL
     console.print("[dim]获取音频流地址...[/dim]")
@@ -97,11 +86,4 @@ def audio(bv_or_url: str, segment: int, no_split: bool, output: str | None):
             console.print(f"[dim]   {basename}  ({size_kb:.0f} KB)[/dim]")
 
 
-def _format_time(seconds: int) -> str:
-    """Format duration for display."""
-    if seconds >= 3600:
-        h, rem = divmod(seconds, 3600)
-        m, s = divmod(rem, 60)
-        return f"{h}:{m:02d}:{s:02d}"
-    m, s = divmod(seconds, 60)
-    return f"{m:02d}:{s:02d}"
+
