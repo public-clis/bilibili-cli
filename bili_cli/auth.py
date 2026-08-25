@@ -3,7 +3,7 @@
 Strategy:
 1. Try loading saved credential from ~/.bilibili-cli/credential.json
 2. Try extracting cookies from local browsers via browser-cookie3
-3. Fallback: QR code login via bilibili-api-python + terminal display
+3. Fallback: Web QR code login (poll Set-Cookie) + terminal display
 """
 
 from __future__ import annotations
