@@ -3,7 +3,7 @@
 Strategy:
 1. Try loading saved credential from ~/.bilibili-cli/credential.json
 2. Try extracting cookies from local browsers via browser-cookie3
-3. Fallback: QR code login via bilibili-api-python + terminal display
+3. Fallback: Web QR code login (poll Set-Cookie) + terminal display
 """
 
 from __future__ import annotations
@@ -16,10 +16,10 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
+from urllib.parse import parse_qs, unquote, urlparse
 
 import qrcode
-from bilibili_api.login_v2 import QrCodeLogin, QrCodeLoginEvents
 from bilibili_api.utils.network import Credential
 
 logger = logging.getLogger(__name__)
@@ -356,7 +356,7 @@ def _render_compact_qr(data: str) -> str | None:
     return "\n".join(lines)
 
 
-def _get_qr_terminal_output(login: QrCodeLogin) -> str:
+def _get_qr_terminal_output(login: Any) -> str:
     """Choose compact QR rendering when possible, otherwise use default output."""
     default_qr = login.get_qrcode_terminal()
 
@@ -375,34 +375,172 @@ def _get_qr_terminal_output(login: QrCodeLogin) -> str:
     return compact_qr
 
 
+QR_GENERATE_URL = "https://passport.bilibili.com/x/passport-login/web/qrcode/generate"
+QR_POLL_URL = "https://passport.bilibili.com/x/passport-login/web/qrcode/poll"
+_QR_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
+
+
+def _parse_set_cookie_headers(headers) -> dict[str, str]:
+    """Extract name/value pairs from raw Set-Cookie header values."""
+    cookies: dict[str, str] = {}
+    # aiohttp / multidict may expose getall; fallback to single get
+    if hasattr(headers, "getall"):
+        items = headers.getall("Set-Cookie", [])
+    else:
+        raw = headers.get("Set-Cookie")
+        items = [raw] if raw else []
+    for item in items:
+        head = item.split(";", 1)[0]
+        if "=" not in head:
+            continue
+        name, value = head.split("=", 1)
+        cookies[name.strip()] = value.strip()
+    return cookies
+
+
+def _cookies_from_login_url(url: str) -> dict[str, str]:
+    """Parse legacy crossDomain URLs that embed SESSDATA in the query string."""
+    qs = parse_qs(urlparse(url).query)
+    out: dict[str, str] = {}
+    for key in ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid"):
+        if key in qs and qs[key]:
+            out[key] = unquote(qs[key][0])
+    return out
+
+
+def _credential_from_cookie_map(cookies: dict[str, str], refresh_token: str = "") -> Credential | None:
+    sessdata = cookies.get("SESSDATA", "")
+    if not sessdata:
+        return None
+    return Credential(
+        sessdata=unquote(sessdata),
+        bili_jct=cookies.get("bili_jct", ""),
+        dedeuserid=cookies.get("DedeUserID", cookies.get("dedeuserid", "")),
+        ac_time_value=refresh_token or cookies.get("refresh_token", "") or "",
+        buvid3=cookies.get("buvid3", ""),
+        buvid4=cookies.get("buvid4", ""),
+    )
+
+
+async def _follow_login_url_for_cookies(session, url: str) -> dict[str, str]:
+    """Follow ticket/crossDomain URL and collect any Set-Cookie values."""
+    cookies: dict[str, str] = {}
+    if not url:
+        return cookies
+    try:
+        async with session.get(url, allow_redirects=True) as resp:
+            cookies.update(_parse_set_cookie_headers(resp.headers))
+            for cookie in session.cookie_jar:
+                if cookie.key not in cookies and cookie.value:
+                    cookies[cookie.key] = cookie.value
+    except Exception as exc:  # pragma: no cover - network best effort
+        logger.debug("Follow login URL failed: %s", exc)
+    return cookies
+
+
 async def qr_login() -> Credential:
-    """QR code login via terminal.
+    """QR code login via terminal (web channel).
 
     Displays a QR code in the terminal, polls until login completes,
     then saves and returns the credential.
+
+    Bilibili's web poll may return a ticket/cross-domain URL whose query
+    string no longer contains SESSDATA. The real cookies are delivered via
+    ``Set-Cookie`` on the poll response (and sometimes via following the
+    login URL). Capture those headers instead of relying on bilibili-api's
+    URL-only parser, which can save an empty credential file.
     """
-    login = QrCodeLogin()
-    await login.generate_qrcode()
+    import aiohttp
 
-    # Display QR code in terminal
-    print("\n📱 请使用 Bilibili App 扫描以下二维码登录:\n")
-    print(_get_qr_terminal_output(login))
-    print("\n⭐ 扫码后请在手机上确认登录...")
+    timeout = aiohttp.ClientTimeout(total=30)
+    jar = aiohttp.CookieJar(unsafe=True)
+    headers = {"User-Agent": _QR_UA, "Referer": "https://www.bilibili.com/"}
 
-    # Poll login state
-    while True:
-        state = await login.check_state()
+    async with aiohttp.ClientSession(cookie_jar=jar, timeout=timeout, headers=headers) as session:
+        async with session.get(QR_GENERATE_URL) as resp:
+            payload = await resp.json(content_type=None)
+        if payload.get("code") != 0:
+            raise RuntimeError(f"生成二维码失败: {payload.get('message') or payload}")
+        data = payload.get("data") or {}
+        qr_link = data.get("url") or ""
+        qrcode_key = data.get("qrcode_key") or ""
+        if not qr_link or not qrcode_key:
+            raise RuntimeError("生成二维码失败: 响应缺少 url 或 qrcode_key")
 
-        if state == QrCodeLoginEvents.DONE:
-            credential = login.get_credential()
-            save_credential(credential)
-            print("\n✅ 登录成功！凭证已保存")
-            return credential
+        class _QrLink:
+            def __init__(self, link: str):
+                self._QrCodeLogin__qr_link = link
 
-        elif state == QrCodeLoginEvents.TIMEOUT:
-            raise RuntimeError("二维码已过期，请重试")
+            def get_qrcode_terminal(self) -> str:
+                compact = _render_compact_qr(self._QrCodeLogin__qr_link)
+                if compact:
+                    return compact
+                return self._QrCodeLogin__qr_link
 
-        elif state == QrCodeLoginEvents.CONF:
-            print("  📲 已扫码，请在手机上确认...")
+        print("\n📱 请使用 Bilibili App 扫描以下二维码登录:\n")
+        print(_get_qr_terminal_output(_QrLink(qr_link)))
+        print("\n⭐ 扫码后请在手机上确认登录...")
 
-        await asyncio.sleep(2)
+        confirmed = False
+        while True:
+            async with session.get(QR_POLL_URL, params={"qrcode_key": qrcode_key}) as resp:
+                body = await resp.json(content_type=None)
+                set_cookies = _parse_set_cookie_headers(resp.headers)
+                for cookie in session.cookie_jar:
+                    if cookie.key not in set_cookies and cookie.value:
+                        set_cookies[cookie.key] = cookie.value
+
+            data = body.get("data") or {}
+            status = int(data.get("code", -1))
+
+            if status == 0 and data.get("url"):
+                cookies = dict(set_cookies)
+                cookies.update(_cookies_from_login_url(data["url"]))
+                if "SESSDATA" not in cookies:
+                    cookies.update(await _follow_login_url_for_cookies(session, data["url"]))
+
+                credential = _credential_from_cookie_map(
+                    cookies, refresh_token=data.get("refresh_token") or ""
+                )
+                if credential is None:
+                    raise RuntimeError(
+                        "登录完成但未拿到有效 SESSDATA，请重试 `bili login`"
+                    )
+                credential = await _enrich_credential_buvids(credential)
+                save_credential(credential)
+                print("\n✅ 登录成功！凭证已保存")
+                return credential
+
+            if status == 86038:
+                raise RuntimeError("二维码已过期，请重试")
+
+            if status == 86090 and not confirmed:
+                print("  📲 已扫码，请在手机上确认...")
+                confirmed = True
+
+            await asyncio.sleep(2)
+
+
+async def _enrich_credential_buvids(credential: Credential) -> Credential:
+    """Best-effort fill buvid3/buvid4 to reduce HTTP 412 wind-control hits."""
+    if getattr(credential, "buvid3", "") and getattr(credential, "buvid4", ""):
+        return credential
+    try:
+        from bilibili_api.utils.network import get_buvid
+
+        buvid3, buvid4 = await get_buvid()
+    except Exception as exc:  # pragma: no cover - network best effort
+        logger.debug("Skipping buvid enrichment: %s", exc)
+        return credential
+
+    return Credential(
+        sessdata=credential.sessdata,
+        bili_jct=credential.bili_jct,
+        ac_time_value=credential.ac_time_value or "",
+        buvid3=getattr(credential, "buvid3", "") or buvid3 or "",
+        buvid4=getattr(credential, "buvid4", "") or buvid4 or "",
+        dedeuserid=getattr(credential, "dedeuserid", "") or "",
+    )
