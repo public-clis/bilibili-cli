@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Literal
 
 import qrcode
-from bilibili_api.login_v2 import QrCodeLogin, QrCodeLoginEvents
+from bilibili_api.login_v2 import QrCodeLogin, QrCodeLoginChannel, QrCodeLoginEvents
 from bilibili_api.utils.network import Credential
 
 logger = logging.getLogger(__name__)
@@ -380,8 +380,13 @@ async def qr_login() -> Credential:
 
     Displays a QR code in the terminal, polls until login completes,
     then saves and returns the credential.
+
+    Uses the TV QR login channel because the current web poll response
+    returns a ticket/cross-domain URL without SESSDATA/bili_jct in the
+    query string. bilibili-api-python's web parser then yields an empty
+    Credential and ``bili login`` falsely reports success.
     """
-    login = QrCodeLogin()
+    login = QrCodeLogin(platform=QrCodeLoginChannel.TV)
     await login.generate_qrcode()
 
     # Display QR code in terminal
@@ -395,6 +400,11 @@ async def qr_login() -> Credential:
 
         if state == QrCodeLoginEvents.DONE:
             credential = login.get_credential()
+            if not getattr(credential, "sessdata", ""):
+                raise RuntimeError(
+                    "登录完成但未拿到有效 SESSDATA，请重试 `bili login`"
+                )
+            credential = await _enrich_credential_buvids(credential)
             save_credential(credential)
             print("\n✅ 登录成功！凭证已保存")
             return credential
@@ -406,3 +416,25 @@ async def qr_login() -> Credential:
             print("  📲 已扫码，请在手机上确认...")
 
         await asyncio.sleep(2)
+
+
+async def _enrich_credential_buvids(credential: Credential) -> Credential:
+    """Best-effort fill buvid3/buvid4 to reduce HTTP 412 wind-control hits."""
+    if getattr(credential, "buvid3", "") and getattr(credential, "buvid4", ""):
+        return credential
+    try:
+        from bilibili_api.utils.network import get_buvid
+
+        buvid3, buvid4 = await get_buvid()
+    except Exception as exc:  # pragma: no cover - network best effort
+        logger.debug("Skipping buvid enrichment: %s", exc)
+        return credential
+
+    return Credential(
+        sessdata=credential.sessdata,
+        bili_jct=credential.bili_jct,
+        ac_time_value=credential.ac_time_value or "",
+        buvid3=getattr(credential, "buvid3", "") or buvid3 or "",
+        buvid4=getattr(credential, "buvid4", "") or buvid4 or "",
+        dedeuserid=getattr(credential, "dedeuserid", "") or "",
+    )

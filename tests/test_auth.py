@@ -5,10 +5,14 @@ import subprocess
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import asyncio
+
 from bilibili_api.exceptions import NetworkException
+from bilibili_api.login_v2 import QrCodeLoginChannel, QrCodeLoginEvents
 from bilibili_api.utils.network import Credential
 
 from bili_cli.auth import (
+    _enrich_credential_buvids,
     _extract_browser_credential,
     _get_qr_terminal_output,
     _load_saved_credential,
@@ -17,6 +21,7 @@ from bili_cli.auth import (
     _validate_credential,
     clear_credential,
     get_credential,
+    qr_login,
     save_credential,
 )
 
@@ -261,3 +266,83 @@ def test_get_qr_terminal_output_prefers_compact_rendering_when_available():
     with patch("bili_cli.auth._supports_unicode_half_blocks", return_value=True), \
          patch("bili_cli.auth._render_compact_qr", return_value="COMPACT_QR"):
         assert _get_qr_terminal_output(DummyLogin()) == "COMPACT_QR"
+
+
+def test_qr_login_uses_tv_channel_and_rejects_empty_sessdata(tmp_path):
+    class DummyLogin:
+        def __init__(self, platform=None):
+            self.platform = platform
+
+        async def generate_qrcode(self):
+            return None
+
+        def get_qrcode_terminal(self):
+            return "QR"
+
+        async def check_state(self):
+            return QrCodeLoginEvents.DONE
+
+        def get_credential(self):
+            return Credential(sessdata="", bili_jct="")
+
+    with patch("bili_cli.auth.QrCodeLogin", DummyLogin), \
+         patch("bili_cli.auth._get_qr_terminal_output", return_value="QR"), \
+         patch("bili_cli.auth.save_credential") as mock_save, \
+         patch("bili_cli.auth.CREDENTIAL_FILE", tmp_path / "cred.json"), \
+         patch("bili_cli.auth.CONFIG_DIR", tmp_path):
+        try:
+            asyncio.run(qr_login())
+            assert False, "expected RuntimeError"
+        except RuntimeError as exc:
+            assert "SESSDATA" in str(exc)
+        mock_save.assert_not_called()
+
+
+def test_qr_login_saves_valid_tv_credential(tmp_path):
+    created = {}
+
+    class DummyLogin:
+        def __init__(self, platform=None):
+            created["platform"] = platform
+
+        async def generate_qrcode(self):
+            return None
+
+        def get_qrcode_terminal(self):
+            return "QR"
+
+        async def check_state(self):
+            return QrCodeLoginEvents.DONE
+
+        def get_credential(self):
+            return Credential(sessdata="sess", bili_jct="jct", dedeuserid="1")
+
+    enriched = Credential(sessdata="sess", bili_jct="jct", dedeuserid="1", buvid3="b3", buvid4="b4")
+
+    with patch("bili_cli.auth.QrCodeLogin", DummyLogin), \
+         patch("bili_cli.auth._get_qr_terminal_output", return_value="QR"), \
+         patch("bili_cli.auth._enrich_credential_buvids", new_callable=AsyncMock, return_value=enriched), \
+         patch("bili_cli.auth.save_credential") as mock_save, \
+         patch("bili_cli.auth.CREDENTIAL_FILE", tmp_path / "cred.json"), \
+         patch("bili_cli.auth.CONFIG_DIR", tmp_path):
+        cred = asyncio.run(qr_login())
+
+    assert created["platform"] == QrCodeLoginChannel.TV
+    assert cred is enriched
+    mock_save.assert_called_once_with(enriched)
+
+
+def test_enrich_credential_buvids_keeps_existing():
+    cred = Credential(sessdata="s", bili_jct="j", buvid3="x", buvid4="y")
+    out = asyncio.run(_enrich_credential_buvids(cred))
+    assert out is cred
+
+
+def test_enrich_credential_buvids_fills_missing():
+    cred = Credential(sessdata="s", bili_jct="j", dedeuserid="9")
+    with patch("bilibili_api.utils.network.get_buvid", new_callable=AsyncMock, return_value=("b3", "b4")):
+        out = asyncio.run(_enrich_credential_buvids(cred))
+    assert out.buvid3 == "b3"
+    assert out.buvid4 == "b4"
+    assert out.sessdata == "s"
+    assert out.dedeuserid == "9"
