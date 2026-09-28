@@ -34,6 +34,11 @@ A CLI for Bilibili — browse videos, users, favorites from the terminal 📺
 
 ## Installation
 
+> ⚠️ **Known issue in `bilibili-cli <= 0.6.2` (everything currently on PyPI):** `bili login`
+> reports success but saves empty credentials, so all authenticated commands fail with
+> `not_authenticated`. The upstream fix is not merged yet — see
+> [INSTALL.md](INSTALL.md) for how to install a working build.
+
 ```bash
 # Recommended: uv tool (fast, isolated)
 uv tool install bilibili-cli
@@ -256,6 +261,10 @@ Structured error codes: `not_authenticated`, `permission_denied`, `invalid_input
 - 🧱 **规范化 payload** — 结构化输出在命令层做了收口，不再直接暴露原始上游 SDK 返回
 
 ## 安装
+
+> ⚠️ **`bilibili-cli <= 0.6.2`（即目前 PyPI 上的所有版本）存在已知问题：** `bili login`
+> 提示成功，但保存的凭证是空的，所有需登录的命令都会报 `not_authenticated`。
+> 上游修复尚未合并 —— 安装可用版本的方法见 [INSTALL.md](INSTALL.md)。
 
 ```bash
 # 推荐：uv tool（快速、隔离环境）

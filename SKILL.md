@@ -29,6 +29,17 @@ When you need machine-readable output:
 
 ## Prerequisites
 
+> ⚠️ **`bilibili-cli <= 0.6.2` (all current PyPI releases) has a broken QR login:** it
+> reports success but writes empty `sessdata`/`bili_jct`, so `bili status` returns
+> `not_authenticated`. If `bili login` "succeeds" but `bili status` fails, you have this
+> bug. Install a working build per [INSTALL.md](INSTALL.md):
+>
+> ```bash
+> uv tool install "bilibili-cli @ git+https://github.com/ZeroMarker/bilibili-cli.git@6962d5b"
+> bili logout    # drop the empty credential written by 0.6.2
+> bili login     # log in again
+> ```
+
 ```bash
 # Install (requires Python 3.10+)
 uv tool install bilibili-cli
