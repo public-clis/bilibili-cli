@@ -178,7 +178,7 @@ def _extract_browser_credential() -> Credential | None:
     Runs extraction in a subprocess with timeout to avoid hanging
     when the browser is running (Chrome DB lock issue).
     """
-    extract_script = '''
+    extract_script = """
 import json, sys
 try:
     import browser_cookie3 as bc3
@@ -204,7 +204,7 @@ for name, loader in browsers:
         pass
 
 print(json.dumps({"error": "no_cookies"}))
-'''
+"""
 
     try:
         result = subprocess.run(
@@ -237,9 +237,7 @@ print(json.dumps({"error": "no_cookies"}))
         if not REQUIRED_COOKIES.issubset(cookies):
             logger.debug("Browser cookies missing required keys: %s", REQUIRED_COOKIES)
             return None
-        logger.info(
-            "Found valid cookies in %s (%d cookies)", browser_name, len(cookies)
-        )
+        logger.info("Found valid cookies in %s (%d cookies)", browser_name, len(cookies))
 
         return Credential(
             sessdata=cookies.get("SESSDATA", ""),
@@ -251,10 +249,7 @@ print(json.dumps({"error": "no_cookies"}))
         )
 
     except subprocess.TimeoutExpired:
-        logger.warning(
-            "Cookie extraction timed out (browser may be running). "
-            "Try closing your browser or use `bili login`."
-        )
+        logger.warning("Cookie extraction timed out (browser may be running). Try closing your browser or use `bili login`.")
         return None
     except (json.JSONDecodeError, KeyError) as e:
         logger.warning("Cookie extraction parse error: %s", e)
@@ -375,6 +370,121 @@ def _get_qr_terminal_output(login: QrCodeLogin) -> str:
     return compact_qr
 
 
+async def _fetch_crossdomain_cookies(cred_url: str) -> dict[str, str]:
+    """Follow a Bilibili QR-login crossDomain ticket URL and collect cookies
+    from the ``Set-Cookie`` response headers.
+
+    Since 2026-08 Bilibili returns a crossDomain ticket link (without cookies)
+    as the login success URL; the real ``SESSDATA`` / ``bili_jct`` /
+    ``DedeUserID`` cookies are delivered via ``Set-Cookie`` headers when
+    following that link with a browser User-Agent.
+    """
+    import aiohttp
+
+    headers = {
+        "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"),
+        "Referer": "https://passport.bilibili.com/",
+    }
+    cookies: dict[str, str] = {}
+    async with aiohttp.ClientSession() as session:
+        async with session.get(cred_url, headers=headers, allow_redirects=False) as resp:
+            for raw in resp.headers.getall("Set-Cookie", []):
+                pair = raw.split(";", 1)[0]
+                if "=" not in pair:
+                    continue
+                name, value = pair.split("=", 1)
+                cookies[name.strip()] = value
+    return cookies
+
+
+def _build_credential_from_cookies(cookies: dict[str, str], ac_time_value: str = "") -> Credential:
+    """Build a Credential from raw cookie values."""
+    return Credential(
+        sessdata=cookies.get("SESSDATA", ""),
+        bili_jct=cookies.get("bili_jct", ""),
+        ac_time_value=ac_time_value or cookies.get("ac_time_value", ""),
+        buvid3=cookies.get("buvid3", ""),
+        buvid4=cookies.get("buvid4", ""),
+        dedeuserid=cookies.get("DedeUserID", ""),
+    )
+
+
+def _parse_qr_events(events: dict) -> QrCodeLoginEvents:
+    """Map WEB QR-poll event codes to QrCodeLoginEvents."""
+    code = events.get("code")
+    if code == 86101:
+        return QrCodeLoginEvents.SCAN
+    if code == 86090:
+        return QrCodeLoginEvents.CONF
+    if code == 86038:
+        return QrCodeLoginEvents.TIMEOUT
+    return QrCodeLoginEvents.DONE
+
+
+async def _patched_check_state(self: QrCodeLogin) -> QrCodeLoginEvents:
+    """Drop-in replacement for bilibili-api's ``QrCodeLogin.check_state`` that
+    handles Bilibili's 2026+ crossDomain QR-login response format.
+
+    Since 2026-08 the WEB QR-login success response no longer embeds cookies in
+    the ``url`` query string: ``data.url`` is a crossDomain ticket link and the
+    real ``SESSDATA`` / ``bili_jct`` / ``DedeUserID`` cookies arrive via
+    ``Set-Cookie`` headers when following it.  bilibili-api's own ``login_v2``
+    (<=17.4.2) only parses cookies from the URL, so it yields an empty
+    ``sessdata``.  We reimplement WEB polling here so the credential is
+    captured at the moment the login completes (re-polling later is not
+    possible: the ``qrcode_key`` is invalidated once the login succeeds).
+
+    Installed via ``QrCodeLogin.check_state = _patched_check_state`` below.
+    """
+    from bilibili_api.utils.network import Api
+    from bilibili_api.utils.utils import get_api
+
+    qr_key = getattr(self, "_QrCodeLogin__qr_key", "")
+    if not qr_key:
+        raise RuntimeError("QR code has not been generated yet")
+
+    api = get_api("login")["qrcode"]["web"]["get_events"]
+    events = await Api(credential=Credential(), **api).update_params(qrcode_key=qr_key).result
+    events = events or {}
+
+    state = _parse_qr_events(events)
+    if state != QrCodeLoginEvents.DONE:
+        return state
+
+    # Login succeeded: build the credential ourselves.
+    cred_url = events.get("url", "")
+    ac_time_value = events.get("refresh_token", "")
+    if "SESSDATA=" in cred_url:
+        # Legacy format: cookies embedded in the URL query string.
+        sessdata = bili_jct = dedeuserid = ""
+        for cookie in cred_url.split("?")[1].split("&"):
+            if cookie[:8] == "SESSDATA":
+                sessdata = cookie[9:]
+            elif cookie[:8] == "bili_jct":
+                bili_jct = cookie[9:]
+            elif cookie[:11].upper() == "DEDEUSERID=":
+                dedeuserid = cookie[11:]
+        credential = Credential(
+            sessdata=sessdata,
+            bili_jct=bili_jct,
+            dedeuserid=dedeuserid,
+            ac_time_value=ac_time_value,
+        )
+    elif cred_url:
+        # New format: crossDomain ticket link; cookies via Set-Cookie headers.
+        cookies = await _fetch_crossdomain_cookies(cred_url)
+        if not cookies.get("SESSDATA"):
+            logger.warning("QR login succeeded but no SESSDATA cookie could be retrieved (Bilibili may have changed the login flow again)")
+            return state
+        credential = _build_credential_from_cookies(cookies, ac_time_value)
+        logger.info("Recovered QR login cookies from crossDomain Set-Cookie headers")
+    else:
+        credential = Credential(ac_time_value=ac_time_value)
+
+    self._QrCodeLogin__credential = credential
+    return QrCodeLoginEvents.DONE
+
+
 async def qr_login() -> Credential:
     """QR code login via terminal.
 
@@ -406,3 +516,13 @@ async def qr_login() -> Credential:
             print("  📲 已扫码，请在手机上确认...")
 
         await asyncio.sleep(2)
+
+
+# Bilibili changed the WEB QR-login response format (2026-08): the success
+# ``url`` is now a crossDomain ticket link and the cookies are delivered via
+# Set-Cookie headers, which bilibili-api's ``login_v2.check_state`` (<=17.4.2)
+# fails to parse (it only looks for cookies in the URL query string).  Install
+# our own WEB poller that captures the credential at completion time; see
+# ``_patched_check_state`` for details.  QR code generation (``generate_qrcode``)
+# is unchanged and keeps working.
+QrCodeLogin.check_state = _patched_check_state
