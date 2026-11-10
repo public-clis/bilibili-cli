@@ -29,6 +29,12 @@ class TestFormatCount:
     def test_invalid_string(self):
         assert _format_count("abc") == "0"
 
+    def test_float(self):
+        assert _format_count(15291.0) == "1.5万"
+
+    def test_float_string(self):
+        assert _format_count("15291.0") == "1.5万"
+
 
 class TestFormatDuration:
     def test_zero(self):
@@ -54,6 +60,12 @@ class TestFormatDuration:
 
     def test_invalid_string(self):
         assert _format_duration("abc") == "00:00"
+
+    def test_float(self):
+        assert _format_duration(125.9) == "02:05"
+
+    def test_float_string(self):
+        assert _format_duration("125.9") == "02:05"
 
 
 class TestExtractBvid:

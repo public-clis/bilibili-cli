@@ -120,9 +120,11 @@ def _to_int(value: object, default: int = 0) -> int:
     """Best-effort convert value to int for display-oriented formatting."""
     if isinstance(value, int):
         return value
+    if isinstance(value, float):
+        return int(value)
     if isinstance(value, str):
         try:
-            return int(value.strip())
+            return int(float(value.strip()))
         except ValueError:
             return default
     return default
